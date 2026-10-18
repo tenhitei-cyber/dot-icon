@@ -1,0 +1,74 @@
+]<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dot Icon Studio</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <h1>Dot Icon Studio</h1>
+
+    <!-- 1. アップロードエリア -->
+    <div class="upload-section" id="dropArea" onclick="document.getElementById('fileInput').click()">
+      <p>📁 画像ファイルをドラッグ＆ドロップ、またはクリックして選択</p>
+      <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleImage(this.files[0])">
+    </div>
+
+    <!-- 2. 自動生成20候補表示エリア -->
+    <div id="candidatesSection" style="display:none;">
+      <div class="controls-bar">
+        <h2>自動生成候補 (20個)</h2>
+        <button class="btn btn-secondary" onclick="generate20Candidates()">🔄 他の候補を再取得</button>
+      </div>
+
+      <div class="patterns-container">
+        <div class="pattern-group">
+          <div class="pattern-title">パターンA: 標準スタイル (Standard)</div>
+          <div class="grid" id="gridA"></div>
+        </div>
+        <div class="pattern-group">
+          <div class="pattern-title">パターンB: 高精細・ファイン (Fine)</div>
+          <div class="grid" id="gridB"></div>
+        </div>
+        <div class="pattern-group">
+          <div class="pattern-title">パターンC: 大粒レトロ (Retro)</div>
+          <div class="grid" id="gridC"></div>
+        </div>
+        <div class="pattern-group">
+          <div class="pattern-title">パターンD: 輪郭強調 (Outline)</div>
+          <div class="grid" id="gridD"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. 手動微調整エディタ画面 -->
+    <div class="editor-section" id="editorSection">
+      <h2>ドット微調整エディタ</h2>
+      <div class="editor-layout">
+        <canvas id="editorCanvas" width="384" height="384"></canvas>
+        
+        <div class="editor-tools">
+          <button class="tool-btn active" id="penBtn" onclick="setTool('pen')">✏️ ドットペン (描く)</button>
+          <button class="tool-btn" id="eraserBtn" onclick="setTool('eraser')">🧹 消しゴム (消す)</button>
+          <button class="tool-btn" onclick="clearEditor()">💥 クリア</button>
+          <hr style="border-color:#333; width:100%;">
+          <div style="text-align:center;">
+            <p style="font-size:12px; color:#aaa;">スマホアイコン見本</p>
+            <div class="preview-badge">
+              <canvas id="previewCanvas" width="64" height="64"></canvas>
+            </div>
+          </div>
+          <hr style="border-color:#333; width:100%;">
+          <button class="btn" onclick="downloadIcon()">💾 PNGダウンロード</button>
+          <button class="btn btn-secondary" onclick="backToCandidates()">⬅ 候補一覧に戻る</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/editor.js') }}"></script>
+</body>
+</html>
