@@ -56,7 +56,7 @@
           
           <hr style="border-color:#333; width:100%;">
 
-          <!-- 💡 今回追加する余白・サイズ調整セクション -->
+          <!-- サイズ・余白・位置調整セクション -->
           <div class="scale-controls" style="width: 100%; text-align: center;">
             <p style="font-size:12px; color:#aaa; margin-bottom: 5px;">🔍 サイズ・余白調整</p>
             <div style="display:flex; align-items:center; gap:5px; margin-bottom:10px;">
@@ -76,6 +76,12 @@
               <div></div>
               <button class="btn btn-secondary" style="padding:2px;" onclick="shiftPattern(0, 1)">⬇️</button>
               <div></div>
+            </div>
+
+            <!-- 💡 今回追加する下絵（ゴースト）の濃さ調整スライダー -->
+            <p style="font-size:12px; color:#aaa; margin-bottom: 5px;">👻 下絵ガイドの濃さ</p>
+            <div style="display:flex; align-items:center; gap:5px; margin-bottom:10px;">
+              <input type="range" id="ghostSlider" min="0" max="1" step="0.05" value="0.25" oninput="onGhostAlphaChange(this.value)" style="flex:1;">
             </div>
           </div>
 
