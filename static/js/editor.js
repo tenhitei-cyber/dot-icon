@@ -3,10 +3,11 @@ let gridData = [];
 let currentTool = 'pen';
 let isDrawing = false;
 
-// 💡 拡大・縮小・移動用のパラメータ
+// 💡 拡大・縮小・移動用のパラメータ ＆ 下絵の濃さパラメータ
 let scaleFactor = 1.0;
 let shiftX = 0;
 let shiftY = 0;
+let ghostAlpha = 0.25; // 初期の下絵の濃さ (25%)
 
 function openEditor(grid, size) {
   gridData = JSON.parse(JSON.stringify(grid));
@@ -16,8 +17,14 @@ function openEditor(grid, size) {
   scaleFactor = 1.0;
   shiftX = 0;
   shiftY = 0;
+  
   const slider = document.getElementById('scaleSlider');
   if (slider) slider.value = 1.0;
+
+  const ghostSlider = document.getElementById('ghostSlider');
+  if (ghostSlider) {
+    ghostAlpha = parseFloat(ghostSlider.value);
+  }
 
   document.getElementById('candidatesSection').style.display = 'none';
   document.getElementById('editorSection').style.display = 'flex';
@@ -26,14 +33,15 @@ function openEditor(grid, size) {
 
 function renderEditor() {
   const canvas = document.getElementById('editorCanvas');
-  drawTransformedEditorDots(canvas, gridData, currentGridSize, scaleFactor, shiftX, shiftY);
+  drawTransformedEditorDots(canvas, gridData, currentGridSize, scaleFactor, shiftX, shiftY, ghostAlpha);
   
   const preview = document.getElementById('previewCanvas');
-  drawTransformedEditorDots(preview, gridData, currentGridSize, scaleFactor, shiftX, shiftY);
+  // プレビュー側には下絵を表示させず、純粋なドット結果だけを描画
+  drawTransformedEditorDots(preview, gridData, currentGridSize, scaleFactor, shiftX, shiftY, 0);
 }
 
-// 💡 拡大・縮小・位置移動を反映した専用の描画関数
-function drawTransformedEditorDots(canvas, grid, size, scale, dx, dy) {
+// 💡 下絵（rawImage）とうっすら重ねて描画する拡張関数
+function drawTransformedEditorDots(canvas, grid, size, scale, dx, dy, alpha) {
   const ctx = canvas.getContext('2d');
   const w = canvas.width;
   ctx.clearRect(0, 0, w, w);
@@ -43,6 +51,18 @@ function drawTransformedEditorDots(canvas, grid, size, scale, dx, dy) {
   ctx.beginPath();
   ctx.arc(w / 2, w / 2, w / 2, 0, Math.PI * 2);
   ctx.fill();
+
+  // 💡 1. 下絵（rawImage）が存在する場合、エディタ側にうっすらと描画する
+  if (alpha > 0 && typeof rawImage !== 'undefined' && rawImage) {
+    ctx.save();
+    ctx.globalAlpha = alpha; // スライダーに応じた透明度
+    // アスペクト比を維持して中央配置（main.jsのprocessToGridと同じ計算）
+    const imgScale = Math.min(w / rawImage.width, w / rawImage.height);
+    const iw = rawImage.width * imgScale;
+    const ih = rawImage.height * imgScale;
+    ctx.drawImage(rawImage, (w - iw) / 2, (w - ih) / 2, iw, ih);
+    ctx.restore();
+  }
 
   const cellSize = (w * 0.8) / size;
   const offset = w * 0.1;
@@ -97,6 +117,12 @@ function resetTransform() {
   shiftY = 0;
   const slider = document.getElementById('scaleSlider');
   if (slider) slider.value = 1.0;
+  renderEditor();
+}
+
+// 💡 下絵の濃さスライダー操作用
+function onGhostAlphaChange(val) {
+  ghostAlpha = parseFloat(val);
   renderEditor();
 }
 // ------------------------------------
