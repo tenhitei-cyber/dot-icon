@@ -10,13 +10,19 @@
   <div class="container">
     <h1>Dot Icon Studio</h1>
 
+    <!-- モード選択タブ -->
+    <div class="mode-tabs" style="display:flex; gap:10px; margin-bottom:15px;">
+      <button class="btn active" id="tabAutoMode" onclick="switchMode('auto')" style="flex:1;">🤖 1. 自動変換モード</button>
+      <button class="btn btn-secondary" id="tabTraceMode" onclick="switchMode('trace')" style="flex:1;">🎨 2. 下絵トレーシングモード</button>
+    </div>
+
     <!-- 1. アップロードエリア -->
     <div class="upload-section" id="dropArea" onclick="document.getElementById('fileInput').click()">
-      <p>📁 画像ファイルをドラッグ＆ドロップ、またはクリックして選択</p>
+      <p id="uploadText">📁 画像ファイルをドラッグ＆ドロップ、またはクリックして選択</p>
       <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleImage(this.files[0])">
     </div>
 
-    <!-- 2. 自動生成20候補表示エリア -->
+    <!-- 2. 自動生成20候補表示エリア（自動変換モードのみ） -->
     <div id="candidatesSection" style="display:none;">
       <div class="controls-bar">
         <h2>自動生成候補 (20個)</h2>
@@ -44,21 +50,42 @@
     </div>
 
     <!-- 3. 手動微調整エディタ画面 -->
-    <div class="editor-section" id="editorSection">
-      <h2>ドット微調整エディタ</h2>
+    <div class="editor-section" id="editorSection" style="display:none;">
+      <h2 id="editorTitle">ドット微調整エディタ</h2>
       <div class="editor-layout">
         <canvas id="editorCanvas" width="384" height="384"></canvas>
         
         <div class="editor-tools">
-          <button class="tool-btn active" id="penBtn" onclick="setTool('pen')">✏️ ドットペン (描く)</button>
-          <button class="tool-btn" id="eraserBtn" onclick="setTool('eraser')">🧹 消しゴム (消す)</button>
-          <button class="tool-btn" onclick="clearEditor()">💥 クリア</button>
+          <div style="display:flex; gap:5px; width:100%;">
+            <button class="tool-btn active" id="penBtn" onclick="setTool('pen')" style="flex:1;">✏️ ペン</button>
+            <button class="tool-btn" id="eraserBtn" onclick="setTool('eraser')" style="flex:1;">🧹 消しゴム</button>
+          </div>
+
+          <!-- 💡 ドット（円）の大きさ調整コントロール（最大3倍まで拡張） -->
+          <div style="width:100%; text-align:center; margin-top:10px;">
+            <p style="font-size:12px; color:#aaa; margin-bottom: 3px;">⚪ ドット（円）の大きさ</p>
+            <div style="display:flex; align-items:center; gap:5px;">
+              <input type="range" id="dotSizeSlider" min="0.1" max="1.5" step="0.05" value="0.4" oninput="onDotSizeChange(this.value)" style="flex:1;">
+            </div>
+          </div>
+
+          <!-- 解像度（マス目のドット数）の変更 -->
+          <div style="width:100%; text-align:center; margin-top:10px;">
+            <p style="font-size:12px; color:#aaa; margin-bottom: 3px;">🔲 マス目サイズ（グリッド数）</p>
+            <select id="gridSizeSelect" onchange="changeGridSize(this.value)" class="btn btn-secondary" style="width:100%; padding:4px;">
+              <option value="18">18×18 (大粒レトロ)</option>
+              <option value="24" selected>24×24 (標準)</option>
+              <option value="32">32×32 (高精細)</option>
+            </select>
+          </div>
+
+          <button class="tool-btn" onclick="clearEditor()" style="width:100%; margin-top:10px;">💥 クリア</button>
           
           <hr style="border-color:#333; width:100%;">
 
-          <!-- 💡 今回追加する余白・サイズ調整セクション -->
+          <!-- サイズ・余白・位置調整セクション -->
           <div class="scale-controls" style="width: 100%; text-align: center;">
-            <p style="font-size:12px; color:#aaa; margin-bottom: 5px;">🔍 サイズ・余白調整</p>
+            <p style="font-size:12px; color:#aaa; margin-bottom: 5px;">🔍 表示拡大・縮小</p>
             <div style="display:flex; align-items:center; gap:5px; margin-bottom:10px;">
               <button class="btn btn-secondary" style="padding:2px 8px;" onclick="adjustScale(-0.1)">➖</button>
               <input type="range" id="scaleSlider" min="0.5" max="1.5" step="0.05" value="1.0" oninput="onScaleChange(this.value)" style="flex:1;">
@@ -71,11 +98,20 @@
               <button class="btn btn-secondary" style="padding:2px;" onclick="shiftPattern(0, -1)">⬆️</button>
               <div></div>
               <button class="btn btn-secondary" style="padding:2px;" onclick="shiftPattern(-1, 0)">⬅️</button>
-              <button class="btn btn-secondary" style="padding:2px;" onclick="resetTransform()">🔄</button>
+              <!-- ワンボタンで全デフォルト状態へ完全リセット -->
+              <button class="btn btn-secondary" style="padding:2px; background-color:#ff4444; color:white;" onclick="resetToDefaultAll()" title="初期状態に戻す">🔄</button>
               <button class="btn btn-secondary" style="padding:2px;" onclick="shiftPattern(1, 0)">➡️</button>
               <div></div>
               <button class="btn btn-secondary" style="padding:2px;" onclick="shiftPattern(0, 1)">⬇️</button>
               <div></div>
+            </div>
+
+            <!-- 下絵ガイドの濃さスライダー（トレーシングモードのみ有効） -->
+            <div id="ghostControl" style="display:none;">
+              <p style="font-size:12px; color:#aaa; margin-bottom: 5px;">👻 下絵ガイドの濃さ</p>
+              <div style="display:flex; align-items:center; gap:5px; margin-bottom:10px;">
+                <input type="range" id="ghostSlider" min="0" max="1" step="0.05" value="0.3" oninput="onGhostAlphaChange(this.value)" style="flex:1;">
+              </div>
             </div>
           </div>
 
@@ -88,8 +124,8 @@
             </div>
           </div>
           <hr style="border-color:#333; width:100%;">
-          <button class="btn" onclick="downloadIcon()">💾 PNGダウンロード</button>
-          <button class="btn btn-secondary" onclick="backToCandidates()">⬅ 候補一覧に戻る</button>
+          <button class="btn" onclick="downloadIcon()" style="width:100%;">💾 PNGダウンロード</button>
+          <button class="btn btn-secondary" id="backBtn" onclick="backToPrev()" style="width:100%; margin-top:5px;">⬅ 戻る</button>
         </div>
       </div>
     </div>

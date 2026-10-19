@@ -1,4 +1,17 @@
 let rawImage = null;
+let appMode = 'auto'; // 'auto': 自動変換モード / 'trace': 下絵トレーシングモード
+
+// モード切替処理
+function switchMode(mode) {
+  appMode = mode;
+  document.getElementById('tabAutoMode').className = (mode === 'auto') ? 'btn active' : 'btn btn-secondary';
+  document.getElementById('tabTraceMode').className = (mode === 'trace') ? 'btn active' : 'btn btn-secondary';
+  
+  const text = (mode === 'auto') 
+    ? '📁 画像をドラッグ＆ドロップ（自動で20候補を作成）' 
+    : '📁 下絵画像をドラッグ＆ドロップ（下絵を見ながら手動トレース）';
+  document.getElementById('uploadText').innerText = text;
+}
 
 // ドロップ・ファイル読み込み処理
 const dropArea = document.getElementById('dropArea');
@@ -15,9 +28,17 @@ function handleImage(file) {
     const img = new Image();
     img.onload = () => {
       rawImage = img;
-      document.getElementById('candidatesSection').style.display = 'block';
-      document.getElementById('editorSection').style.display = 'none';
-      generate20Candidates();
+      if (appMode === 'auto') {
+        // 1. 自動変換モード: 20候補を生成して候補一覧を表示
+        document.getElementById('candidatesSection').style.display = 'block';
+        document.getElementById('editorSection').style.display = 'none';
+        generate20Candidates();
+      } else {
+        // 2. 下絵トレーシングモード: 候補一覧をスキップして直接エディタを開く
+        document.getElementById('candidatesSection').style.display = 'none';
+        const emptyGrid = Array.from({ length: 24 }, () => Array(24).fill(0));
+        openEditor(emptyGrid, 24, true); // true = 下絵ありモード
+      }
     };
     img.src = e.target.result;
   };
@@ -53,19 +74,18 @@ function renderGroup(elementId, size, paramFunc) {
     drawDotsOnCanvas(canvas, gData, size);
 
     card.appendChild(canvas);
-    card.onclick = () => openEditor(gData, size);
+    card.onclick = () => openEditor(gData, size, false); // 自動変換モード（下絵なし）
     container.appendChild(card);
   }
 }
 
-// 画像から2Dグリッド配列(0/1)に変換処理 (フラッドフィル外側背景除去 ＋ 白黒化)
+// 画像から2Dグリッド配列(0/1)に変換処理
 function processToGrid(img, gridSize, params) {
   const tempCanvas = document.createElement('canvas');
   tempCanvas.width = gridSize;
   tempCanvas.height = gridSize;
   const ctx = tempCanvas.getContext('2d');
 
-  // アスペクト比を維持して中央配置
   const scale = Math.min(gridSize / img.width, gridSize / img.height);
   const w = img.width * scale;
   const h = img.height * scale;
@@ -74,9 +94,7 @@ function processToGrid(img, gridSize, params) {
   const imgData = ctx.getImageData(0, 0, gridSize, gridSize);
   const data = imgData.data;
 
-  // 1. 四隅から連続する外側背景領域だけを特定する（フラッドフィル）
   const isBackground = floodFillBackground(data, gridSize, gridSize);
-
   const grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
 
   for (let y = 0; y < gridSize; y++) {
@@ -86,13 +104,11 @@ function processToGrid(img, gridSize, params) {
       
       if (a < 30) continue;
 
-      // フラッドフィルで「外側背景」と判定された部分はスキップ
       if (isBackground[y][x]) {
         grid[y][x] = 0;
         continue;
       }
 
-      // 残ったアイコン本体を白黒（輝度）に変換してドット化
       const brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
       grid[y][x] = (brightness < params.thresh) ? 1 : 0;
     }
@@ -100,22 +116,19 @@ function processToGrid(img, gridSize, params) {
   return grid;
 }
 
-// 四隅から繋がっている背景部分を自動検出する関数（フラッドフィル）
 function floodFillBackground(data, width, height) {
   const visited = Array.from({ length: height }, () => Array(width).fill(false));
   const isBg = Array.from({ length: height }, () => Array(width).fill(false));
 
   const sampleColors = [
-    [data[0], data[1], data[2]], // 左上
-    [data[(width - 1) * 4], data[(width - 1) * 4 + 1], data[(width - 1) * 4 + 2]], // 右上
-    [data[((height - 1) * width) * 4], data[((height - 1) * width) * 4 + 1], data[((height - 1) * width) * 4 + 2]], // 左下
-    [data[((height - 1) * width + width - 1) * 4], data[((height - 1) * width + width - 1) * 4 + 1], data[((height - 1) * width + width - 1) * 4 + 2]] // 右下
+    [data[0], data[1], data[2]],
+    [data[(width - 1) * 4], data[(width - 1) * 4 + 1], data[(width - 1) * 4 + 2]],
+    [data[((height - 1) * width) * 4], data[((height - 1) * width) * 4 + 1], data[((height - 1) * width) * 4 + 2]],
+    [data[((height - 1) * width + width - 1) * 4], data[((height - 1) * width + width - 1) * 4 + 1], data[((height - 1) * width + width - 1) * 4 + 2]]
   ];
 
   const queue = [];
-  const startPoints = [
-    [0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]
-  ];
+  const startPoints = [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]];
 
   startPoints.forEach(([sx, sy]) => {
     queue.push([sx, sy]);
@@ -123,7 +136,6 @@ function floodFillBackground(data, width, height) {
   });
 
   const colorTolerance = 35;
-
   function colorMatch(r1, g1, b1, r2, g2, b2) {
     return Math.abs(r1 - r2) + Math.abs(g1 - g2) + Math.abs(b1 - b2) < colorTolerance;
   }
@@ -145,9 +157,7 @@ function floodFillBackground(data, width, height) {
         let matches = sampleColors.some(sc => colorMatch(nr, ng, nb, sc[0], sc[1], sc[2])) ||
                       colorMatch(nr, ng, nb, cr, cg, cb);
 
-        if (matches) {
-          queue.push([nx, ny]);
-        }
+        if (matches) queue.push([nx, ny]);
       }
     }
   }
@@ -155,19 +165,16 @@ function floodFillBackground(data, width, height) {
   return isBg;
 }
 
-// ドット配列をCanvas上に描画（黒丸背景＋白丸ドット）
 function drawDotsOnCanvas(canvas, grid, gridSize) {
   const ctx = canvas.getContext('2d');
   const w = canvas.width;
   ctx.clearRect(0, 0, w, w);
 
-  // 黒背景丸
   ctx.fillStyle = '#000000';
   ctx.beginPath();
   ctx.arc(w / 2, w / 2, w / 2, 0, Math.PI * 2);
   ctx.fill();
 
-  // 白ドット
   const cellSize = (w * 0.8) / gridSize;
   const offset = w * 0.1;
   ctx.fillStyle = '#ffffff';
