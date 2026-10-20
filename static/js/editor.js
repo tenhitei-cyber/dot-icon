@@ -2,9 +2,9 @@ let currentGridSize = 24;
 let gridData = [];
 let currentTool = 'pen';
 let isDrawing = false;
-let isTraceMode = false; // 下絵モードかどうか
+let isTraceMode = false; // 下絵トレースモードかどうか
 
-// ドットの円の大きさ係数（初期値 0.4 = 標準、最大 1.5 = 約3.75倍の大粒サイズ）
+// ドットの円の大きさ係数（初期値 0.4）
 let dotRadiusRatio = 0.4;
 
 // 拡大・縮小・移動・下絵濃度
@@ -21,12 +21,16 @@ function openEditor(grid, size, isTrace = false) {
   // パラメータ初期化
   resetTransformParams();
 
-  // 下絵コントロールの表示/非表示（トレーシングモードのみ下絵表示）
+  // 下絵コントロールの表示/非表示
   const ghostControl = document.getElementById('ghostControl');
   if (ghostControl) ghostControl.style.display = isTraceMode ? 'block' : 'none';
 
   const title = document.getElementById('editorTitle');
-  if (title) title.innerText = isTraceMode ? '🎨 下絵トレーシングエディタ' : 'ドット微調整エディタ';
+  if (title) {
+    if (isTraceMode) title.innerText = '🎨 下絵トレーシングエディタ';
+    else if (appMode === 'manual') title.innerText = '✏️ 白紙手動作成エディタ';
+    else title.innerText = 'ドット微調整エディタ';
+  }
 
   const select = document.getElementById('gridSizeSelect');
   if (select) select.value = size;
@@ -40,7 +44,7 @@ function resetTransformParams() {
   scaleFactor = 1.0;
   shiftX = 0;
   shiftY = 0;
-  dotRadiusRatio = 0.4; // 初期ドットサイズに戻す
+  dotRadiusRatio = 0.4;
   
   const scaleSlider = document.getElementById('scaleSlider');
   if (scaleSlider) scaleSlider.value = 1.0;
@@ -54,10 +58,11 @@ function resetTransformParams() {
 
 function renderEditor() {
   const canvas = document.getElementById('editorCanvas');
-  const drawAlpha = isTraceMode ? ghostAlpha : 0; // 自動モードなら下絵なし(0)
+  const drawAlpha = isTraceMode ? ghostAlpha : 0;
   drawTransformedEditorDots(canvas, gridData, currentGridSize, scaleFactor, shiftX, shiftY, drawAlpha);
   
   const preview = document.getElementById('previewCanvas');
+  // 編集画面内のプレビューもダウンロード画像と完全に同じ比率・外枠内接で描画
   drawTransformedEditorDots(preview, gridData, currentGridSize, scaleFactor, shiftX, shiftY, 0);
 }
 
@@ -66,13 +71,13 @@ function drawTransformedEditorDots(canvas, grid, size, scale, dx, dy, alpha) {
   const w = canvas.width;
   ctx.clearRect(0, 0, w, w);
 
-  // 黒背景丸
+  // キャンバス外枠にピッタリ内接する黒背景丸
   ctx.fillStyle = '#000000';
   ctx.beginPath();
   ctx.arc(w / 2, w / 2, w / 2, 0, Math.PI * 2);
   ctx.fill();
 
-  // 下絵描画 (トレーシングモードのみ)
+  // 下絵描画 (トレースモードかつ画像が存在する場合のみ)
   if (alpha > 0 && typeof rawImage !== 'undefined' && rawImage) {
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -91,7 +96,7 @@ function drawTransformedEditorDots(canvas, grid, size, scale, dx, dy, alpha) {
   ctx.scale(scale, scale);
   ctx.translate(-w / 2, -w / 2);
 
-  // 白ドット（dotRadiusRatio を変更することで、ドットの径がダイナミックに拡大）
+  // 白ドット
   ctx.fillStyle = '#ffffff';
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -130,7 +135,7 @@ function changeGridSize(newSize) {
   renderEditor();
 }
 
-// ワンボタンで全設定を初期状態（デフォルト）にリセット
+// 初期状態にリセット
 function resetToDefaultAll() {
   resetTransformParams();
   renderEditor();
@@ -203,7 +208,7 @@ function clearEditor() {
 }
 
 function backToPrev() {
-  if (isTraceMode) {
+  if (isTraceMode || appMode === 'manual') {
     document.getElementById('editorSection').style.display = 'none';
   } else {
     document.getElementById('candidatesSection').style.display = 'block';
@@ -211,9 +216,16 @@ function backToPrev() {
   }
 }
 
+// 外枠 64×64 ピクセル・ぴったり内接する円アイコンとしてダウンロード
 function downloadIcon() {
+  const dlCanvas = document.createElement('canvas');
+  dlCanvas.width = 64;
+  dlCanvas.height = 64;
+  
+  drawTransformedEditorDots(dlCanvas, gridData, currentGridSize, scaleFactor, shiftX, shiftY, 0);
+
   const link = document.createElement('a');
-  link.download = 'dot-icon.png';
-  link.href = document.getElementById('previewCanvas').toDataURL();
+  link.download = 'dot-icon-64x64.png';
+  link.href = dlCanvas.toDataURL('image/png');
   link.click();
 }
