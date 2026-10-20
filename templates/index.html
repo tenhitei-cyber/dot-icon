@@ -10,16 +10,22 @@
   <div class="container">
     <h1>Dot Icon Studio</h1>
 
-    <!-- モード選択タブ -->
-    <div class="mode-tabs" style="display:flex; gap:10px; margin-bottom:15px;">
-      <button class="btn active" id="tabAutoMode" onclick="switchMode('auto')" style="flex:1;">🤖 1. 自動変換モード</button>
-      <button class="btn btn-secondary" id="tabTraceMode" onclick="switchMode('trace')" style="flex:1;">🎨 2. 下絵トレーシングモード</button>
+    <!-- モード選択タブ (3モード対応) -->
+    <div class="mode-tabs" style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+      <button class="btn active" id="tabAutoMode" onclick="switchMode('auto')" style="flex:1; min-width:140px;">🤖 1. 自動変換</button>
+      <button class="btn btn-secondary" id="tabTraceMode" onclick="switchMode('trace')" style="flex:1; min-width:140px;">🎨 2. 下絵トレース</button>
+      <button class="btn btn-secondary" id="tabManualMode" onclick="switchMode('manual')" style="flex:1; min-width:140px;">✏️ 3. 白紙手動作成</button>
     </div>
 
     <!-- 1. アップロードエリア -->
     <div class="upload-section" id="dropArea" onclick="document.getElementById('fileInput').click()">
       <p id="uploadText">📁 画像ファイルをドラッグ＆ドロップ、またはクリックして選択</p>
       <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleImage(this.files[0])">
+    </div>
+
+    <!-- 白紙手動作成スタートボタン (白紙手動モード時のみ表示) -->
+    <div id="manualStartArea" style="display:none; text-align:center; margin-bottom:20px;">
+      <button class="btn" onclick="startBlankManual()" style="padding:12px 30px; font-size:16px;">✨ 白紙キャンバスで作成を開始</button>
     </div>
 
     <!-- 2. 自動生成20候補表示エリア（自動変換モードのみ） -->
@@ -61,7 +67,7 @@
             <button class="tool-btn" id="eraserBtn" onclick="setTool('eraser')" style="flex:1;">🧹 消しゴム</button>
           </div>
 
-          <!-- 💡 ドット（円）の大きさ調整コントロール（最大3倍まで拡張） -->
+          <!-- ドット（円）の大きさ調整コントロール -->
           <div style="width:100%; text-align:center; margin-top:10px;">
             <p style="font-size:12px; color:#aaa; margin-bottom: 3px;">⚪ ドット（円）の大きさ</p>
             <div style="display:flex; align-items:center; gap:5px;">
@@ -98,7 +104,6 @@
               <button class="btn btn-secondary" style="padding:2px;" onclick="shiftPattern(0, -1)">⬆️</button>
               <div></div>
               <button class="btn btn-secondary" style="padding:2px;" onclick="shiftPattern(-1, 0)">⬅️</button>
-              <!-- ワンボタンで全デフォルト状態へ完全リセット -->
               <button class="btn btn-secondary" style="padding:2px; background-color:#ff4444; color:white;" onclick="resetToDefaultAll()" title="初期状態に戻す">🔄</button>
               <button class="btn btn-secondary" style="padding:2px;" onclick="shiftPattern(1, 0)">➡️</button>
               <div></div>
@@ -118,7 +123,7 @@
           <hr style="border-color:#333; width:100%;">
 
           <div style="text-align:center;">
-            <p style="font-size:12px; color:#aaa;">スマホアイコン見本</p>
+            <p style="font-size:12px; color:#aaa;">スマホアイコン見本 (64x64)</p>
             <div class="preview-badge">
               <canvas id="previewCanvas" width="64" height="64"></canvas>
             </div>
