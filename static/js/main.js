@@ -1,16 +1,28 @@
 let rawImage = null;
-let appMode = 'auto'; // 'auto': 自動変換モード / 'trace': 下絵トレーシングモード
+let appMode = 'auto'; // 'auto': 自動変換 / 'trace': 下絵トレース / 'manual': 白紙手動作成
 
 // モード切替処理
 function switchMode(mode) {
   appMode = mode;
   document.getElementById('tabAutoMode').className = (mode === 'auto') ? 'btn active' : 'btn btn-secondary';
   document.getElementById('tabTraceMode').className = (mode === 'trace') ? 'btn active' : 'btn btn-secondary';
+  document.getElementById('tabManualMode').className = (mode === 'manual') ? 'btn active' : 'btn btn-secondary';
   
-  const text = (mode === 'auto') 
-    ? '📁 画像をドラッグ＆ドロップ（自動で20候補を作成）' 
-    : '📁 下絵画像をドラッグ＆ドロップ（下絵を見ながら手動トレース）';
-  document.getElementById('uploadText').innerText = text;
+  const uploadArea = document.getElementById('dropArea');
+  const manualArea = document.getElementById('manualStartArea');
+
+  if (mode === 'auto') {
+    uploadArea.style.display = 'block';
+    manualArea.style.display = 'none';
+    document.getElementById('uploadText').innerText = '📁 画像をドラッグ＆ドロップ（自動で20候補を作成）';
+  } else if (mode === 'trace') {
+    uploadArea.style.display = 'block';
+    manualArea.style.display = 'none';
+    document.getElementById('uploadText').innerText = '📁 下絵画像をドラッグ＆ドロップ（下絵を見ながら手動トレース）';
+  } else { // 'manual'
+    uploadArea.style.display = 'none';
+    manualArea.style.display = 'block';
+  }
 }
 
 // ドロップ・ファイル読み込み処理
@@ -29,15 +41,13 @@ function handleImage(file) {
     img.onload = () => {
       rawImage = img;
       if (appMode === 'auto') {
-        // 1. 自動変換モード: 20候補を生成して候補一覧を表示
         document.getElementById('candidatesSection').style.display = 'block';
         document.getElementById('editorSection').style.display = 'none';
         generate20Candidates();
       } else {
-        // 2. 下絵トレーシングモード: 候補一覧をスキップして直接エディタを開く
         document.getElementById('candidatesSection').style.display = 'none';
         const emptyGrid = Array.from({ length: 24 }, () => Array(24).fill(0));
-        openEditor(emptyGrid, 24, true); // true = 下絵ありモード
+        openEditor(emptyGrid, 24, true); // 下絵トレースモード
       }
     };
     img.src = e.target.result;
@@ -45,10 +55,17 @@ function handleImage(file) {
   reader.readAsDataURL(file);
 }
 
+// 白紙手動作成のスタート
+function startBlankManual() {
+  rawImage = null;
+  document.getElementById('candidatesSection').style.display = 'none';
+  const emptyGrid = Array.from({ length: 24 }, () => Array(24).fill(0));
+  openEditor(emptyGrid, 24, false); // 白紙手動モード（下絵なし）
+}
+
 // パターン別・パラメータ生成 (20候補)
 function generate20Candidates() {
-  if (!rawImage) return;
-  
+  if (!rawImage) return;  
   const randomOffset = Math.random() * 0.1 - 0.05;
 
   renderGroup('gridA', 24, (i) => ({ thresh: 0.5 + i * 0.08 + randomOffset, mode: 'standard' }));
