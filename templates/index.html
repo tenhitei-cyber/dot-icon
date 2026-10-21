@@ -1,144 +1,524 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dot Icon Studio</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-</head>
-<body>
-  <div class="container">
-    <h1>Dot Icon Studio</h1>
+let currentGridSize = 24;
+let gridData = [];
+let currentTool = 'pen';
+let isDrawing = false;
+let isTraceMode = false; // 下絵トレースモードかどうか
 
-    <!-- モード選択タブ (3モード対応) -->
-    <div class="mode-tabs" style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
-      <button class="btn active" id="tabAutoMode" onclick="switchMode('auto')" style="flex:1; min-width:140px;">🤖 1. 自動変換</button>
-      <button class="btn btn-secondary" id="tabTraceMode" onclick="switchMode('trace')" style="flex:1; min-width:140px;">🎨 2. 下絵トレース</button>
-      <button class="btn btn-secondary" id="tabManualMode" onclick="switchMode('manual')" style="flex:1; min-width:140px;">✏️ 3. 白紙手動作成</button>
-    </div>
+// グリッド吸着モードの管理（true: 吸着あり, false: 自由配置）
+let isSnapMode = true;
+let freeDots = []; // 自由配置モード時のドットリスト [{x, y, radiusRatio}]
 
-    <!-- 1. アップロードエリア -->
-    <div class="upload-section" id="dropArea" onclick="document.getElementById('fileInput').click()">
-      <p id="uploadText">📁 画像ファイルをドラッグ＆ドロップ、またはクリックして選択</p>
-      <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleImage(this.files[0])">
-    </div>
+// ドラッグ移動管理用変数
+let isDraggingDot = false;
+let draggedDotValue = null; 
+let dragSourcePos = null;   
+let draggedFreeDotIndex = -1;
+let currentMousePos = { x: 0, y: 0 }; // ドラッグ中のマウス位置追跡用
 
-    <!-- 白紙手動作成スタートボタン (白紙手動モード時のみ表示) -->
-    <div id="manualStartArea" style="display:none; text-align:center; margin-bottom:20px;">
-      <button class="btn" onclick="startBlankManual()" style="padding:12px 30px; font-size:16px;">✨ 白紙キャンバスで作成を開始</button>
-    </div>
+// 現在のペンの太さ（ドットスライダーの値。初期値 0.4）
+let dotRadiusRatio = 0.4;
 
-    <!-- 2. 自動生成20候補表示エリア（自動変換モードのみ） -->
-    <div id="candidatesSection" style="display:none;">
-      <div class="controls-bar">
-        <h2>自動生成候補 (20個)</h2>
-        <button class="btn btn-secondary" onclick="generate20Candidates()">🔄 他の候補を再取得</button>
-      </div>
+// 拡大・縮小・移動・下絵濃度
+let scaleFactor = 1.0;
+let shiftX = 0;
+let shiftY = 0;
+let ghostAlpha = 0.3;
 
-      <div class="patterns-container">
-        <div class="pattern-group">
-          <div class="pattern-title">パターンA: 標準スタイル (Standard)</div>
-          <div class="grid" id="gridA"></div>
-        </div>
-        <div class="pattern-group">
-          <div class="pattern-title">パターンB: 高精細・ファイン (Fine)</div>
-          <div class="grid" id="gridB"></div>
-        </div>
-        <div class="pattern-group">
-          <div class="pattern-title">パターンC: 大粒レトロ (Retro)</div>
-          <div class="grid" id="gridC"></div>
-        </div>
-        <div class="pattern-group">
-          <div class="pattern-title">パターンD: 輪郭強調 (Outline)</div>
-          <div class="grid" id="gridD"></div>
-        </div>
-      </div>
-    </div>
+function openEditor(grid, size, isTrace = false) {
+  gridData = JSON.parse(JSON.stringify(grid)).map(row => 
+    row.map(cell => (cell === 1 ? 0.4 : cell))
+  );
+  currentGridSize = size;
+  isTraceMode = isTrace;
+  isSnapMode = true; // 開く時はデフォルトで吸着ON
+  freeDots = [];
+  
+  // パラメータ初期化
+  resetTransformParams();
 
-    <!-- 3. 手動微調整エディタ画面 -->
-    <div class="editor-section" id="editorSection" style="display:none;">
-      <h2 id="editorTitle">ドット微調整エディタ</h2>
-      <div class="editor-layout">
-        <canvas id="editorCanvas" width="384" height="384"></canvas>
-        
-        <div class="editor-tools">
-          <div style="display:flex; gap:5px; width:100%;">
-            <button class="tool-btn active" id="penBtn" onclick="setTool('pen')" style="flex:1;">✏️ ペン</button>
-            <button class="tool-btn" id="eraserBtn" onclick="setTool('eraser')" style="flex:1;">🧹 消しゴム</button>
-          </div>
+  // HTML側のチェックボックスの状態を同期
+  const cb = document.getElementById('snapToggleCheckbox');
+  if (cb) cb.checked = isSnapMode;
 
-          <!-- ドット（円）の大きさ調整コントロール ＋ サイズ確認プレビュー枠 -->
-          <div style="width:100%; background:rgba(255,255,255,0.05); padding:8px; border-radius:6px; margin-top:10px; text-align:center;">
-            <p style="font-size:12px; color:#aaa; margin-bottom: 5px;">⚪ ドット（円）の大きさ</p>
-            <div style="display:flex; align-items:center; gap:8px; justify-content:center;">
-              <input type="range" id="dotSizeSlider" min="0.1" max="1.5" step="0.05" value="0.4" oninput="onDotSizeChange(this.value)" style="flex:1;">
-              <!-- 現在のドットサイズがひと目でわかるプレビュー用キャンバス -->
-              <canvas id="dotSizePreviewCanvas" width="36" height="36" style="background:#000; border-radius:50%; border:1px solid #555; display:block;"></canvas>
-            </div>
-          </div>
+  // 下絵コントロールの表示/非表示
+  const ghostControl = document.getElementById('ghostControl');
+  if (ghostControl) ghostControl.style.display = isTraceMode ? 'block' : 'none';
 
-          <!-- 解像度（マス目のドット数）の変更 -->
-          <div style="width:100%; text-align:center; margin-top:10px;">
-            <p style="font-size:12px; color:#aaa; margin-bottom: 3px;">🔲 マス目サイズ（グリッド数）</p>
-            <select id="gridSizeSelect" onchange="changeGridSize(this.value)" class="btn btn-secondary" style="width:100%; padding:4px;">
-              <option value="18">18×18 (大粒レトロ)</option>
-              <option value="24" selected>24×24 (標準)</option>
-              <option value="32">32×32 (高精細)</option>
-            </select>
-          </div>
+  const title = document.getElementById('editorTitle');
+  if (title) {
+    if (isTraceMode) title.innerText = '🎨 下絵トレーシングエディタ';
+    else if (appMode === 'manual') title.innerText = '✏️ 白紙手動作成エディタ';
+    else title.innerText = 'ドット微調整エディタ';
+  }
 
-          <button class="tool-btn" onclick="clearEditor()" style="width:100%; margin-top:10px;">💥 クリア</button>
-          
-          <hr style="border-color:#333; width:100%;">
+  const select = document.getElementById('gridSizeSelect');
+  if (select) select.value = size;
 
-          <!-- サイズ・余白・位置調整セクション -->
-          <div class="scale-controls" style="width: 100%; text-align: center;">
-            <p style="font-size:12px; color:#aaa; margin-bottom: 5px;">🔍 表示拡大・縮小</p>
-            <div style="display:flex; align-items:center; gap:5px; margin-bottom:10px;">
-              <button class="btn btn-secondary" style="padding:2px 8px;" onclick="adjustScale(-0.1)">➖</button>
-              <input type="range" id="scaleSlider" min="0.5" max="1.5" step="0.05" value="1.0" oninput="onScaleChange(this.value)" style="flex:1;">
-              <button class="btn btn-secondary" style="padding:2px 8px;" onclick="adjustScale(0.1)">➕</button>
-            </div>
+  document.getElementById('candidatesSection').style.display = 'none';
+  document.getElementById('editorSection').style.display = 'flex';
+  renderEditor();
+}
 
-            <p style="font-size:12px; color:#aaa; margin-bottom: 5px;">🎯 位置の移動</p>
-            <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:3px; max-width:120px; margin:0 auto 10px auto;">
-              <div></div>
-              <button class="btn btn-secondary" style="padding:2px;" onclick="shiftPattern(0, -1)">⬆️</button>
-              <div></div>
-              <button class="btn btn-secondary" style="padding:2px;" onclick="shiftPattern(-1, 0)">⬅️</button>
-              <button class="btn btn-secondary" style="padding:2px; background-color:#ff4444; color:white;" onclick="resetToDefaultAll()" title="初期状態に戻す">🔄</button>
-              <button class="btn btn-secondary" style="padding:2px;" onclick="shiftPattern(1, 0)">➡️</button>
-              <div></div>
-              <button class="btn btn-secondary" style="padding:2px;" onclick="shiftPattern(0, 1)">⬇️</button>
-              <div></div>
-            </div>
+// スイッチ切り替え時の処理（グリッド⇔自由配置データの相互変換）
+function toggleSnapMode(isChecked) {
+  isSnapMode = isChecked;
+  const w = 384;
+  const size = currentGridSize;
+  const cellSize = (w * 0.8) / size;
+  const offset = w * 0.1;
 
-            <!-- 下絵ガイドの濃さスライダー（トレーシングモードのみ有効） -->
-            <div id="ghostControl" style="display:none;">
-              <p style="font-size:12px; color:#aaa; margin-bottom: 5px;">👻 下絵ガイドの濃さ</p>
-              <div style="display:flex; align-items:center; gap:5px; margin-bottom:10px;">
-                <input type="range" id="ghostSlider" min="0" max="1" step="0.05" value="0.3" oninput="onGhostAlphaChange(this.value)" style="flex:1;">
-              </div>
-            </div>
-          </div>
+  if (!isSnapMode) {
+    // 【吸着ON ⇒ 自由配置OFF】 gridData から freeDots へ変換
+    freeDots = [];
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const val = gridData[y][x];
+        if (val && val > 0) {
+          const cx = offset + x * cellSize + cellSize / 2;
+          const cy = offset + y * cellSize + cellSize / 2;
+          freeDots.push({ x: cx, y: cy, radiusRatio: val === 1 ? 0.4 : val });
+        }
+      }
+    }
+  } else {
+    // 【自由配置OFF ⇒ 吸着ON】 freeDots から gridData へ変換
+    gridData = Array.from({ length: size }, () => Array(size).fill(0));
+    freeDots.forEach(dot => {
+      const gx = Math.floor((dot.x - offset) / cellSize);
+      const gy = Math.floor((dot.y - offset) / cellSize);
+      if (gx >= 0 && gx < size && gy >= 0 && gy < size) {
+        gridData[gy][gx] = dot.radiusRatio;
+      }
+    });
+    freeDots = [];
+  }
+  renderEditor();
+}
 
-          <hr style="border-color:#333; width:100%;">
+function resetTransformParams() {
+  scaleFactor = 1.0;
+  shiftX = 0;
+  shiftY = 0;
+  dotRadiusRatio = 0.4;
+  
+  const scaleSlider = document.getElementById('scaleSlider');
+  if (scaleSlider) scaleSlider.value = 1.0;
 
-          <div style="text-align:center;">
-            <p style="font-size:12px; color:#aaa;">スマホアイコン見本 (64x64)</p>
-            <div class="preview-badge">
-              <canvas id="previewCanvas" width="64" height="64"></canvas>
-            </div>
-          </div>
-          <hr style="border-color:#333; width:100%;">
-          <button class="btn" onclick="downloadIcon()" style="width:100%;">💾 PNGダウンロード</button>
-          <button class="btn btn-secondary" id="backBtn" onclick="backToPrev()" style="width:100%; margin-top:5px;">⬅ 戻る</button>
-        </div>
-      </div>
-    </div>
-  </div>
+  const dotSizeSlider = document.getElementById('dotSizeSlider');
+  if (dotSizeSlider) dotSizeSlider.value = 0.4;
 
-  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/editor.js') }}"></script>
-</body>
-</html>
+  const ghostSlider = document.getElementById('ghostSlider');
+  if (ghostSlider) ghostAlpha = parseFloat(ghostSlider.value);
+  
+  updateDotSizePreview();
+}
+
+function renderEditor() {
+  const canvas = document.getElementById('editorCanvas');
+  const drawAlpha = isTraceMode ? ghostAlpha : 0;
+  drawTransformedEditorDots(canvas, currentGridSize, scaleFactor, shiftX, shiftY, drawAlpha);
+  
+  const preview = document.getElementById('previewCanvas');
+  drawTransformedEditorDots(preview, currentGridSize, scaleFactor, shiftX, shiftY, 0);
+
+  updateDotSizePreview();
+}
+
+function updateDotSizePreview() {
+  const pCanvas = document.getElementById('dotSizePreviewCanvas');
+  if (!pCanvas) return;
+  const pCtx = pCanvas.getContext('2d');
+  const pw = pCanvas.width;
+  pCtx.clearRect(0, 0, pw, pw);
+
+  const cellSize = (384 * 0.8) / currentGridSize;
+  const radius = cellSize * dotRadiusRatio;
+
+  pCtx.fillStyle = '#ffffff';
+  pCtx.beginPath();
+  pCtx.arc(pw / 2, pw / 2, radius, 0, Math.PI * 2);
+  pCtx.fill();
+}
+
+function drawTransformedEditorDots(canvas, size, scale, dx, dy, alpha) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  ctx.clearRect(0, 0, w, w);
+
+  // キャンバス外枠にピッタリ内接する黒背景丸
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.arc(w / 2, w / 2, w / 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 下絵描画
+  if (alpha > 0 && typeof rawImage !== 'undefined' && rawImage) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const imgScale = Math.min(w / rawImage.width, w / rawImage.height);
+    const iw = rawImage.width * imgScale;
+    const ih = rawImage.height * imgScale;
+    ctx.drawImage(rawImage, (w - iw) / 2, (w - ih) / 2, iw, ih);
+    ctx.restore();
+  }
+
+  const cellSize = (w * 0.8) / size;
+  const offset = w * 0.1;
+
+  ctx.save();
+  ctx.translate(w / 2 + dx * cellSize, w / 2 + dy * cellSize);
+  ctx.scale(scale, scale);
+  ctx.translate(-w / 2, -w / 2);
+
+  // グリッド線（ガイド）の描画
+  if (appMode === 'manual' || isTraceMode) {
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= size; i++) {
+      ctx.beginPath();
+      ctx.moveTo(offset + i * cellSize, offset);
+      ctx.lineTo(offset + i * cellSize, offset + size * cellSize);
+      ctx.stroke();
+      
+      ctx.beginPath();
+      ctx.moveTo(offset, offset + i * cellSize);
+      ctx.lineTo(offset + size * cellSize, offset + i * cellSize);
+      ctx.stroke();
+    }
+  }
+
+  // 白ドットの描画（吸着モードか自由配置モードかで切り替え）
+  ctx.fillStyle = '#ffffff';
+  if (isSnapMode) {
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const cellValue = gridData[y] && gridData[y][x];
+        if (cellValue && cellValue > 0) {
+          const radiusRatio = (cellValue === 1) ? 0.4 : cellValue;
+          const cx = offset + x * cellSize + cellSize / 2;
+          const cy = offset + y * cellSize + cellSize / 2;
+          ctx.beginPath();
+          ctx.arc(cx, cy, cellSize * radiusRatio, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+    // 吸着モードでドラッグ中の場合、マウス位置に掴んでいるドットを半透明で常時表示する
+    if (isDraggingDot && draggedDotValue !== null) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.beginPath();
+      ctx.arc(currentMousePos.localX, currentMousePos.localY, cellSize * draggedDotValue, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    freeDots.forEach((dot, index) => {
+      // 自由配置モードでドラッグ中のドットは、元の位置ではなくマウス位置に表示するためここではスキップ
+      if (!(isDraggingDot && index === draggedFreeDotIndex)) {
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, cellSize * dot.radiusRatio, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+    // 自由配置モードでドラッグ中のドットをマウス位置に表示
+    if (isDraggingDot && draggedFreeDotIndex !== -1) {
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(currentMousePos.localX, currentMousePos.localY, cellSize * draggedDotValue, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function onDotSizeChange(val) {
+  dotRadiusRatio = parseFloat(val);
+  updateDotSizePreview();
+}
+
+function changeGridSize(newSize) {
+  newSize = parseInt(newSize);
+  const oldGrid = gridData;
+  const oldSize = currentGridSize;
+  const newGrid = Array.from({ length: newSize }, () => Array(newSize).fill(0));
+
+  for (let y = 0; y < Math.min(oldSize, newSize); y++) {
+    for (let x = 0; x < Math.min(oldSize, newSize); x++) {
+      newGrid[y][x] = oldGrid[y][x];
+    }
+  }
+  gridData = newGrid;
+  currentGridSize = newSize;
+  freeDots = [];
+  renderEditor();
+}
+
+function resetToDefaultAll() {
+  resetTransformParams();
+  renderEditor();
+}
+
+function onScaleChange(val) {
+  scaleFactor = parseFloat(val);
+  renderEditor();
+}
+
+function adjustScale(delta) {
+  const slider = document.getElementById('scaleSlider');
+  if (!slider) return;
+  let newVal = parseFloat(slider.value) + delta;
+  newVal = Math.max(0.5, Math.min(1.5, newVal));
+  slider.value = newVal;
+  scaleFactor = newVal;
+  renderEditor();
+}
+
+function shiftPattern(dx, dy) {
+  shiftX += dx;
+  shiftY += dy;
+  renderEditor();
+}
+
+function onGhostAlphaChange(val) {
+  ghostAlpha = parseFloat(val);
+  renderEditor();
+}
+
+// キャンバス描画・マウスイベント処理
+const editorCanvas = document.getElementById('editorCanvas');
+
+editorCanvas.addEventListener('mousedown', (e) => {
+  isDrawing = true;
+  handlePointerDown(e);
+});
+
+editorCanvas.addEventListener('mousemove', (e) => {
+  const { localX, localY } = getLocalCoords(e);
+  currentMousePos = { localX, localY };
+  if (isDrawing) {
+    handlePointerMove(e);
+  }
+});
+
+window.addEventListener('mouseup', (e) => {
+  if (isDrawing) {
+    handlePointerUp(e);
+  }
+  isDrawing = false;
+  isDraggingDot = false;
+  draggedDotValue = null;
+  dragSourcePos = null;
+  draggedFreeDotIndex = -1;
+  renderEditor();
+});
+
+function getLocalCoords(e) {
+  const rect = editorCanvas.getBoundingClientRect();
+  const scaleX = editorCanvas.width / rect.width;
+  const scaleY = editorCanvas.height / rect.height;
+
+  const clickX = (e.clientX - rect.left) * scaleX;
+  const clickY = (e.clientY - rect.top) * scaleY;
+
+  const w = editorCanvas.width;
+  const cellSize = (w * 0.8) / currentGridSize;
+
+  const centerX = w / 2;
+  const centerY = w / 2;
+  const localX = (clickX - centerX - (shiftX * cellSize)) / scaleFactor + centerX;
+  const localY = (clickY - centerY - (shiftY * cellSize)) / scaleFactor + centerY;
+
+  return { localX, localY };
+}
+
+function handlePointerDown(e) {
+  const { localX, localY } = getLocalCoords(e);
+  currentMousePos = { localX, localY };
+  const w = editorCanvas.width;
+  const cellSize = (w * 0.8) / currentGridSize;
+  const offset = w * 0.1;
+
+  if (isSnapMode) {
+    const x = Math.floor((localX - offset) / cellSize);
+    const y = Math.floor((localY - offset) / cellSize);
+
+    if (x >= 0 && x < currentGridSize && y >= 0 && y < currentGridSize) {
+      if (currentTool === 'pen') {
+        if (gridData[y][x] > 0) {
+          isDraggingDot = true;
+          draggedDotValue = gridData[y][x];
+          dragSourcePos = { x, y };
+          gridData[y][x] = 0;
+        } else {
+          gridData[y][x] = dotRadiusRatio;
+        }
+      } else {
+        gridData[y][x] = 0;
+      }
+      renderEditor();
+    }
+  } else {
+    if (currentTool === 'pen') {
+      const hitIndex = freeDots.findIndex(dot => {
+        const dist = Math.hypot(dot.x - localX, dot.y - localY);
+        return dist <= (cellSize * dot.radiusRatio * 1.5); // 掴みやすく少し判定を拡大
+      });
+
+      if (hitIndex !== -1) {
+        isDraggingDot = true;
+        draggedFreeDotIndex = hitIndex;
+        draggedDotValue = freeDots[hitIndex].radiusRatio;
+        // ドラッグ中はリストから外さず保持し、描画側でマウス位置に追従させる
+      } else {
+        freeDots.push({ x: localX, y: localY, radiusRatio: dotRadiusRatio });
+      }
+    } else {
+      freeDots = freeDots.filter(dot => {
+        const dist = Math.hypot(dot.x - localX, dot.y - localY);
+        return dist > (cellSize * dot.radiusRatio);
+      });
+    }
+    renderEditor();
+  }
+}
+
+function handlePointerMove(e) {
+  if (isDraggingDot) {
+    renderEditor(); // ドラッグ中はマウス位置に円が追従して描き直される
+  } else if (currentTool === 'pen' && isSnapMode) {
+    const { localX, localY } = getLocalCoords(e);
+    const w = editorCanvas.width;
+    const cellSize = (w * 0.8) / currentGridSize;
+    const offset = w * 0.1;
+    const x = Math.floor((localX - offset) / cellSize);
+    const y = Math.floor((localY - offset) / cellSize);
+    if (x >= 0 && x < currentGridSize && y >= 0 && y < currentGridSize) {
+      gridData[y][x] = dotRadiusRatio;
+      renderEditor();
+    }
+  } else if (currentTool === 'eraser') {
+    const { localX, localY } = getLocalCoords(e);
+    const w = editorCanvas.width;
+    const cellSize = (w * 0.8) / currentGridSize;
+    const offset = w * 0.1;
+    if (isSnapMode) {
+      const x = Math.floor((localX - offset) / cellSize);
+      const y = Math.floor((localY - offset) / cellSize);
+      if (x >= 0 && x < currentGridSize && y >= 0 && y < currentGridSize) {
+        gridData[y][x] = 0;
+        renderEditor();
+      }
+    } else {
+      freeDots = freeDots.filter(dot => {
+        const dist = Math.hypot(dot.x - localX, dot.y - localY);
+        return dist > (cellSize * dot.radiusRatio);
+      });
+      renderEditor();
+    }
+  }
+}
+
+function handlePointerUp(e) {
+  const { localX, localY } = getLocalCoords(e);
+  const w = editorCanvas.width;
+  const cellSize = (w * 0.8) / currentGridSize;
+  const offset = w * 0.1;
+
+  if (isSnapMode && isDraggingDot) {
+    const x = Math.floor((localX - offset) / cellSize);
+    const y = Math.floor((localY - offset) / cellSize);
+
+    if (x >= 0 && x < currentGridSize && y >= 0 && y < currentGridSize) {
+      gridData[y][x] = draggedDotValue;
+    } else if (dragSourcePos) {
+      gridData[dragSourcePos.y][dragSourcePos.x] = draggedDotValue;
+    }
+  } else if (!isSnapMode && isDraggingDot && draggedFreeDotIndex !== -1) {
+    // 自由配置モードのドロップ：元の位置のデータを更新または新規追加
+    freeDots[draggedFreeDotIndex] = { x: localX, y: localY, radiusRatio: draggedDotValue };
+  }
+  renderEditor();
+}
+
+function setTool(tool) {
+  currentTool = tool;
+  document.getElementById('penBtn').classList.toggle('active', tool === 'pen');
+  document.getElementById('eraserBtn').classList.toggle('active', tool === 'eraser');
+}
+
+function clearEditor() {
+  gridData = Array.from({ length: currentGridSize }, () => Array(currentGridSize).fill(0));
+  freeDots = [];
+  renderEditor();
+}
+
+function backToPrev() {
+  if (isTraceMode || appMode === 'manual') {
+    document.getElementById('editorSection').style.display = 'none';
+  } else {
+    document.getElementById('candidatesSection').style.display = 'block';
+    document.getElementById('editorSection').style.display = 'none';
+  }
+}
+
+function downloadIcon() {
+  const dlCanvas = document.createElement('canvas');
+  dlCanvas.width = 64;
+  dlCanvas.height = 64;
+  
+  if (!isSnapMode) {
+    const tempGrid = Array.from({ length: currentGridSize }, () => Array(currentGridSize).fill(0));
+    const w = 384;
+    const size = currentGridSize;
+    const cellSize = (w * 0.8) / size;
+    const offset = w * 0.1;
+    freeDots.forEach(dot => {
+      const gx = Math.floor((dot.x - offset) / cellSize);
+      const gy = Math.floor((dot.y - offset) / cellSize);
+      if (gx >= 0 && gx < size && gy >= 0 && gy < size) {
+        tempGrid[gy][gx] = dot.radiusRatio;
+      }
+    });
+    drawTransformedEditorDotsCustom(dlCanvas, tempGrid, currentGridSize, scaleFactor, shiftX, shiftY, 0);
+  } else {
+    drawTransformedEditorDots(dlCanvas, currentGridSize, scaleFactor, shiftX, shiftY, 0);
+  }
+
+  const link = document.createElement('a');
+  link.download = 'dot-icon-64x64.png';
+  link.href = dlCanvas.toDataURL('image/png');
+  link.click();
+}
+
+function drawTransformedEditorDotsCustom(canvas, grid, size, scale, dx, dy, alpha) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  ctx.clearRect(0, 0, w, w);
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.arc(w / 2, w / 2, w / 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  const cellSize = (w * 0.8) / size;
+  const offset = w * 0.1;
+
+  ctx.save();
+  ctx.translate(w / 2 + dx * cellSize, w / 2 + dy * cellSize);
+  ctx.scale(scale, scale);
+  ctx.translate(-w / 2, -w / 2);
+
+  ctx.fillStyle = '#ffffff';
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const cellValue = grid[y] && grid[y][x];
+      if (cellValue && cellValue > 0) {
+        const radiusRatio = (cellValue === 1) ? 0.4 : cellValue;
+        const cx = offset + x * cellSize + cellSize / 2;
+        const cy = offset + y * cellSize + cellSize / 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, cellSize * radiusRatio, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
+}
