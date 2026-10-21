@@ -4,6 +4,17 @@ let currentTool = 'pen';
 let isDrawing = false;
 let isTraceMode = false; // 下絵トレースモードかどうか
 
+// グリッド吸着モードの管理（true: 吸着あり, false: 自由配置）
+let isSnapMode = true;
+let freeDots = []; // 自由配置モード時のドットリスト [{x, y, radiusRatio}]
+
+// ドラッグ移動管理用変数
+let isDraggingDot = false;
+let draggedDotValue = null; 
+let dragSourcePos = null;   
+let draggedFreeDotIndex = -1;
+let currentMousePos = { x: 0, y: 0 }; // ドラッグ中のマウス位置追跡用
+
 // 現在のペンの太さ（ドットスライダーの値。初期値 0.4）
 let dotRadiusRatio = 0.4;
 
@@ -19,9 +30,15 @@ function openEditor(grid, size, isTrace = false) {
   );
   currentGridSize = size;
   isTraceMode = isTrace;
+  isSnapMode = true; // 開く時はデフォルトで吸着ON
+  freeDots = [];
   
   // パラメータ初期化
   resetTransformParams();
+
+  // HTML側のチェックボックスの状態を同期
+  const cb = document.getElementById('snapToggleCheckbox');
+  if (cb) cb.checked = isSnapMode;
 
   // 下絵コントロールの表示/非表示
   const ghostControl = document.getElementById('ghostControl');
@@ -39,6 +56,42 @@ function openEditor(grid, size, isTrace = false) {
 
   document.getElementById('candidatesSection').style.display = 'none';
   document.getElementById('editorSection').style.display = 'flex';
+  renderEditor();
+}
+
+// スイッチ切り替え時の処理（グリッド⇔自由配置データの相互変換）
+function toggleSnapMode(isChecked) {
+  isSnapMode = isChecked;
+  const w = 384;
+  const size = currentGridSize;
+  const cellSize = (w * 0.8) / size;
+  const offset = w * 0.1;
+
+  if (!isSnapMode) {
+    // 【吸着ON ⇒ 自由配置OFF】 gridData から freeDots へ変換
+    freeDots = [];
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const val = gridData[y][x];
+        if (val && val > 0) {
+          const cx = offset + x * cellSize + cellSize / 2;
+          const cy = offset + y * cellSize + cellSize / 2;
+          freeDots.push({ x: cx, y: cy, radiusRatio: val === 1 ? 0.4 : val });
+        }
+      }
+    }
+  } else {
+    // 【自由配置OFF ⇒ 吸着ON】 freeDots から gridData へ変換
+    gridData = Array.from({ length: size }, () => Array(size).fill(0));
+    freeDots.forEach(dot => {
+      const gx = Math.floor((dot.x - offset) / cellSize);
+      const gy = Math.floor((dot.y - offset) / cellSize);
+      if (gx >= 0 && gx < size && gy >= 0 && gy < size) {
+        gridData[gy][gx] = dot.radiusRatio;
+      }
+    });
+    freeDots = [];
+  }
   renderEditor();
 }
 
@@ -63,25 +116,21 @@ function resetTransformParams() {
 function renderEditor() {
   const canvas = document.getElementById('editorCanvas');
   const drawAlpha = isTraceMode ? ghostAlpha : 0;
-  drawTransformedEditorDots(canvas, gridData, currentGridSize, scaleFactor, shiftX, shiftY, drawAlpha);
+  drawTransformedEditorDots(canvas, currentGridSize, scaleFactor, shiftX, shiftY, drawAlpha);
   
   const preview = document.getElementById('previewCanvas');
-  drawTransformedEditorDots(preview, gridData, currentGridSize, scaleFactor, shiftX, shiftY, 0);
+  drawTransformedEditorDots(preview, currentGridSize, scaleFactor, shiftX, shiftY, 0);
 
   updateDotSizePreview();
 }
 
-// ==========================================
-// 【完全一致方式】実際の1マスのピクセルサイズをプレビューにそのまま適用
-// ==========================================
 function updateDotSizePreview() {
   const pCanvas = document.getElementById('dotSizePreviewCanvas');
   if (!pCanvas) return;
   const pCtx = pCanvas.getContext('2d');
-  const pw = pCanvas.width; // 36px
+  const pw = pCanvas.width;
   pCtx.clearRect(0, 0, pw, pw);
 
-  // メイン画面の1マス（cellSize）の大きさをそのまま基準にする
   const cellSize = (384 * 0.8) / currentGridSize;
   const radius = cellSize * dotRadiusRatio;
 
@@ -91,7 +140,7 @@ function updateDotSizePreview() {
   pCtx.fill();
 }
 
-function drawTransformedEditorDots(canvas, grid, size, scale, dx, dy, alpha) {
+function drawTransformedEditorDots(canvas, size, scale, dx, dy, alpha) {
   const ctx = canvas.getContext('2d');
   const w = canvas.width;
   ctx.clearRect(0, 0, w, w);
@@ -102,7 +151,7 @@ function drawTransformedEditorDots(canvas, grid, size, scale, dx, dy, alpha) {
   ctx.arc(w / 2, w / 2, w / 2, 0, Math.PI * 2);
   ctx.fill();
 
-  // 下絵描画 (トレースモードかつ画像が存在する場合のみ)
+  // 下絵描画
   if (alpha > 0 && typeof rawImage !== 'undefined' && rawImage) {
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -121,17 +170,16 @@ function drawTransformedEditorDots(canvas, grid, size, scale, dx, dy, alpha) {
   ctx.scale(scale, scale);
   ctx.translate(-w / 2, -w / 2);
 
-  // グリッド線（方眼）の描画：手動作成またはトレースモードのときに表示
+  // グリッド線（ガイド）の描画
   if (appMode === 'manual' || isTraceMode) {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.lineWidth = 1;
     for (let i = 0; i <= size; i++) {
-      // 縦線
       ctx.beginPath();
       ctx.moveTo(offset + i * cellSize, offset);
       ctx.lineTo(offset + i * cellSize, offset + size * cellSize);
       ctx.stroke();
-      // 横線
+      
       ctx.beginPath();
       ctx.moveTo(offset, offset + i * cellSize);
       ctx.lineTo(offset + size * cellSize, offset + i * cellSize);
@@ -139,32 +187,54 @@ function drawTransformedEditorDots(canvas, grid, size, scale, dx, dy, alpha) {
     }
   }
 
-  // 白ドット
+  // 白ドットの描画（吸着モードか自由配置モードかで切り替え）
   ctx.fillStyle = '#ffffff';
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const cellValue = grid[y] && grid[y][x];
-      if (cellValue && cellValue > 0) {
-        const radiusRatio = (cellValue === 1) ? 0.4 : cellValue;
-        
-        const cx = offset + x * cellSize + cellSize / 2;
-        const cy = offset + y * cellSize + cellSize / 2;
+  if (isSnapMode) {
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const cellValue = gridData[y] && gridData[y][x];
+        if (cellValue && cellValue > 0) {
+          const radiusRatio = (cellValue === 1) ? 0.4 : cellValue;
+          const cx = offset + x * cellSize + cellSize / 2;
+          const cy = offset + y * cellSize + cellSize / 2;
+          ctx.beginPath();
+          ctx.arc(cx, cy, cellSize * radiusRatio, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+    // 吸着モードでドラッグ中の場合、マウス位置に掴んでいるドットを半透明で常時表示する
+    if (isDraggingDot && draggedDotValue !== null) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.beginPath();
+      ctx.arc(currentMousePos.localX, currentMousePos.localY, cellSize * draggedDotValue, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    freeDots.forEach((dot, index) => {
+      // 自由配置モードでドラッグ中のドットは、元の位置ではなくマウス位置に表示するためここではスキップ
+      if (!(isDraggingDot && index === draggedFreeDotIndex)) {
         ctx.beginPath();
-        ctx.arc(cx, cy, cellSize * radiusRatio, 0, Math.PI * 2);
+        ctx.arc(dot.x, dot.y, cellSize * dot.radiusRatio, 0, Math.PI * 2);
         ctx.fill();
       }
+    });
+    // 自由配置モードでドラッグ中のドットをマウス位置に表示
+    if (isDraggingDot && draggedFreeDotIndex !== -1) {
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(currentMousePos.localX, currentMousePos.localY, cellSize * draggedDotValue, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
   ctx.restore();
 }
 
-// ドットサイズスライダー操作
 function onDotSizeChange(val) {
   dotRadiusRatio = parseFloat(val);
   updateDotSizePreview();
 }
 
-// マス目サイズ（グリッド数）変更
 function changeGridSize(newSize) {
   newSize = parseInt(newSize);
   const oldGrid = gridData;
@@ -178,10 +248,10 @@ function changeGridSize(newSize) {
   }
   gridData = newGrid;
   currentGridSize = newSize;
+  freeDots = [];
   renderEditor();
 }
 
-// 初期状態にリセット
 function resetToDefaultAll() {
   resetTransformParams();
   renderEditor();
@@ -213,16 +283,36 @@ function onGhostAlphaChange(val) {
   renderEditor();
 }
 
-// キャンバス描画イベント
+// キャンバス描画・マウスイベント処理
 const editorCanvas = document.getElementById('editorCanvas');
-editorCanvas.addEventListener('mousedown', (e) => { isDrawing = true; editCell(e); });
-editorCanvas.addEventListener('mousemove', (e) => { if (isDrawing) editCell(e); });
-window.addEventListener('mouseup', () => { isDrawing = false; });
 
-// 単一セルクリック＆描画処理（マウス位置のズレなし）
-function editCell(e) {
+editorCanvas.addEventListener('mousedown', (e) => {
+  isDrawing = true;
+  handlePointerDown(e);
+});
+
+editorCanvas.addEventListener('mousemove', (e) => {
+  const { localX, localY } = getLocalCoords(e);
+  currentMousePos = { localX, localY };
+  if (isDrawing) {
+    handlePointerMove(e);
+  }
+});
+
+window.addEventListener('mouseup', (e) => {
+  if (isDrawing) {
+    handlePointerUp(e);
+  }
+  isDrawing = false;
+  isDraggingDot = false;
+  draggedDotValue = null;
+  dragSourcePos = null;
+  draggedFreeDotIndex = -1;
+  renderEditor();
+});
+
+function getLocalCoords(e) {
   const rect = editorCanvas.getBoundingClientRect();
-  
   const scaleX = editorCanvas.width / rect.width;
   const scaleY = editorCanvas.height / rect.height;
 
@@ -231,24 +321,122 @@ function editCell(e) {
 
   const w = editorCanvas.width;
   const cellSize = (w * 0.8) / currentGridSize;
-  const offset = w * 0.1;
 
   const centerX = w / 2;
   const centerY = w / 2;
   const localX = (clickX - centerX - (shiftX * cellSize)) / scaleFactor + centerX;
   const localY = (clickY - centerY - (shiftY * cellSize)) / scaleFactor + centerY;
 
-  const x = Math.floor((localX - offset) / cellSize);
-  const y = Math.floor((localY - offset) / cellSize);
+  return { localX, localY };
+}
 
-  if (x >= 0 && x < currentGridSize && y >= 0 && y < currentGridSize) {
+function handlePointerDown(e) {
+  const { localX, localY } = getLocalCoords(e);
+  currentMousePos = { localX, localY };
+  const w = editorCanvas.width;
+  const cellSize = (w * 0.8) / currentGridSize;
+  const offset = w * 0.1;
+
+  if (isSnapMode) {
+    const x = Math.floor((localX - offset) / cellSize);
+    const y = Math.floor((localY - offset) / cellSize);
+
+    if (x >= 0 && x < currentGridSize && y >= 0 && y < currentGridSize) {
+      if (currentTool === 'pen') {
+        if (gridData[y][x] > 0) {
+          isDraggingDot = true;
+          draggedDotValue = gridData[y][x];
+          dragSourcePos = { x, y };
+          gridData[y][x] = 0;
+        } else {
+          gridData[y][x] = dotRadiusRatio;
+        }
+      } else {
+        gridData[y][x] = 0;
+      }
+      renderEditor();
+    }
+  } else {
     if (currentTool === 'pen') {
-      gridData[y][x] = dotRadiusRatio;
+      const hitIndex = freeDots.findIndex(dot => {
+        const dist = Math.hypot(dot.x - localX, dot.y - localY);
+        return dist <= (cellSize * dot.radiusRatio * 1.5); // 掴みやすく少し判定を拡大
+      });
+
+      if (hitIndex !== -1) {
+        isDraggingDot = true;
+        draggedFreeDotIndex = hitIndex;
+        draggedDotValue = freeDots[hitIndex].radiusRatio;
+        // ドラッグ中はリストから外さず保持し、描画側でマウス位置に追従させる
+      } else {
+        freeDots.push({ x: localX, y: localY, radiusRatio: dotRadiusRatio });
+      }
     } else {
-      gridData[y][x] = 0;
+      freeDots = freeDots.filter(dot => {
+        const dist = Math.hypot(dot.x - localX, dot.y - localY);
+        return dist > (cellSize * dot.radiusRatio);
+      });
     }
     renderEditor();
   }
+}
+
+function handlePointerMove(e) {
+  if (isDraggingDot) {
+    renderEditor(); // ドラッグ中はマウス位置に円が追従して描き直される
+  } else if (currentTool === 'pen' && isSnapMode) {
+    const { localX, localY } = getLocalCoords(e);
+    const w = editorCanvas.width;
+    const cellSize = (w * 0.8) / currentGridSize;
+    const offset = w * 0.1;
+    const x = Math.floor((localX - offset) / cellSize);
+    const y = Math.floor((localY - offset) / cellSize);
+    if (x >= 0 && x < currentGridSize && y >= 0 && y < currentGridSize) {
+      gridData[y][x] = dotRadiusRatio;
+      renderEditor();
+    }
+  } else if (currentTool === 'eraser') {
+    const { localX, localY } = getLocalCoords(e);
+    const w = editorCanvas.width;
+    const cellSize = (w * 0.8) / currentGridSize;
+    const offset = w * 0.1;
+    if (isSnapMode) {
+      const x = Math.floor((localX - offset) / cellSize);
+      const y = Math.floor((localY - offset) / cellSize);
+      if (x >= 0 && x < currentGridSize && y >= 0 && y < currentGridSize) {
+        gridData[y][x] = 0;
+        renderEditor();
+      }
+    } else {
+      freeDots = freeDots.filter(dot => {
+        const dist = Math.hypot(dot.x - localX, dot.y - localY);
+        return dist > (cellSize * dot.radiusRatio);
+      });
+      renderEditor();
+    }
+  }
+}
+
+function handlePointerUp(e) {
+  const { localX, localY } = getLocalCoords(e);
+  const w = editorCanvas.width;
+  const cellSize = (w * 0.8) / currentGridSize;
+  const offset = w * 0.1;
+
+  if (isSnapMode && isDraggingDot) {
+    const x = Math.floor((localX - offset) / cellSize);
+    const y = Math.floor((localY - offset) / cellSize);
+
+    if (x >= 0 && x < currentGridSize && y >= 0 && y < currentGridSize) {
+      gridData[y][x] = draggedDotValue;
+    } else if (dragSourcePos) {
+      gridData[dragSourcePos.y][dragSourcePos.x] = draggedDotValue;
+    }
+  } else if (!isSnapMode && isDraggingDot && draggedFreeDotIndex !== -1) {
+    // 自由配置モードのドロップ：元の位置のデータを更新または新規追加
+    freeDots[draggedFreeDotIndex] = { x: localX, y: localY, radiusRatio: draggedDotValue };
+  }
+  renderEditor();
 }
 
 function setTool(tool) {
@@ -259,6 +447,7 @@ function setTool(tool) {
 
 function clearEditor() {
   gridData = Array.from({ length: currentGridSize }, () => Array(currentGridSize).fill(0));
+  freeDots = [];
   renderEditor();
 }
 
@@ -271,16 +460,65 @@ function backToPrev() {
   }
 }
 
-// 外枠 64×64 ピクセル・ぴったり内接する円アイコンとしてダウンロード
 function downloadIcon() {
   const dlCanvas = document.createElement('canvas');
   dlCanvas.width = 64;
   dlCanvas.height = 64;
   
-  drawTransformedEditorDots(dlCanvas, gridData, currentGridSize, scaleFactor, shiftX, shiftY, 0);
+  if (!isSnapMode) {
+    const tempGrid = Array.from({ length: currentGridSize }, () => Array(currentGridSize).fill(0));
+    const w = 384;
+    const size = currentGridSize;
+    const cellSize = (w * 0.8) / size;
+    const offset = w * 0.1;
+    freeDots.forEach(dot => {
+      const gx = Math.floor((dot.x - offset) / cellSize);
+      const gy = Math.floor((dot.y - offset) / cellSize);
+      if (gx >= 0 && gx < size && gy >= 0 && gy < size) {
+        tempGrid[gy][gx] = dot.radiusRatio;
+      }
+    });
+    drawTransformedEditorDotsCustom(dlCanvas, tempGrid, currentGridSize, scaleFactor, shiftX, shiftY, 0);
+  } else {
+    drawTransformedEditorDots(dlCanvas, currentGridSize, scaleFactor, shiftX, shiftY, 0);
+  }
 
   const link = document.createElement('a');
   link.download = 'dot-icon-64x64.png';
   link.href = dlCanvas.toDataURL('image/png');
   link.click();
+}
+
+function drawTransformedEditorDotsCustom(canvas, grid, size, scale, dx, dy, alpha) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  ctx.clearRect(0, 0, w, w);
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.arc(w / 2, w / 2, w / 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  const cellSize = (w * 0.8) / size;
+  const offset = w * 0.1;
+
+  ctx.save();
+  ctx.translate(w / 2 + dx * cellSize, w / 2 + dy * cellSize);
+  ctx.scale(scale, scale);
+  ctx.translate(-w / 2, -w / 2);
+
+  ctx.fillStyle = '#ffffff';
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const cellValue = grid[y] && grid[y][x];
+      if (cellValue && cellValue > 0) {
+        const radiusRatio = (cellValue === 1) ? 0.4 : cellValue;
+        const cx = offset + x * cellSize + cellSize / 2;
+        const cy = offset + y * cellSize + cellSize / 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, cellSize * radiusRatio, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
 }
