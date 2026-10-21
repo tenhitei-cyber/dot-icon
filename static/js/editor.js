@@ -4,7 +4,7 @@ let currentTool = 'pen';
 let isDrawing = false;
 let isTraceMode = false; // 下絵トレースモードかどうか
 
-// ドットの円の大きさ係数（初期値 0.4）
+// 現在のペンの太さ（ドットスライダーの値。初期値 0.4）
 let dotRadiusRatio = 0.4;
 
 // 拡大・縮小・移動・下絵濃度
@@ -14,7 +14,9 @@ let shiftY = 0;
 let ghostAlpha = 0.3;
 
 function openEditor(grid, size, isTrace = false) {
-  gridData = JSON.parse(JSON.stringify(grid));
+  gridData = JSON.parse(JSON.stringify(grid)).map(row => 
+    row.map(cell => (cell === 1 ? 0.4 : cell))
+  );
   currentGridSize = size;
   isTraceMode = isTrace;
   
@@ -54,6 +56,8 @@ function resetTransformParams() {
 
   const ghostSlider = document.getElementById('ghostSlider');
   if (ghostSlider) ghostAlpha = parseFloat(ghostSlider.value);
+  
+  updateDotSizePreview();
 }
 
 function renderEditor() {
@@ -62,8 +66,29 @@ function renderEditor() {
   drawTransformedEditorDots(canvas, gridData, currentGridSize, scaleFactor, shiftX, shiftY, drawAlpha);
   
   const preview = document.getElementById('previewCanvas');
-  // 編集画面内のプレビューもダウンロード画像と完全に同じ比率・外枠内接で描画
   drawTransformedEditorDots(preview, gridData, currentGridSize, scaleFactor, shiftX, shiftY, 0);
+
+  updateDotSizePreview();
+}
+
+// ==========================================
+// 【完全一致方式】実際の1マスのピクセルサイズをプレビューにそのまま適用
+// ==========================================
+function updateDotSizePreview() {
+  const pCanvas = document.getElementById('dotSizePreviewCanvas');
+  if (!pCanvas) return;
+  const pCtx = pCanvas.getContext('2d');
+  const pw = pCanvas.width; // 36px
+  pCtx.clearRect(0, 0, pw, pw);
+
+  // メイン画面の1マス（cellSize）の大きさをそのまま基準にする
+  const cellSize = (384 * 0.8) / currentGridSize;
+  const radius = cellSize * dotRadiusRatio;
+
+  pCtx.fillStyle = '#ffffff';
+  pCtx.beginPath();
+  pCtx.arc(pw / 2, pw / 2, radius, 0, Math.PI * 2);
+  pCtx.fill();
 }
 
 function drawTransformedEditorDots(canvas, grid, size, scale, dx, dy, alpha) {
@@ -96,15 +121,36 @@ function drawTransformedEditorDots(canvas, grid, size, scale, dx, dy, alpha) {
   ctx.scale(scale, scale);
   ctx.translate(-w / 2, -w / 2);
 
+  // グリッド線（方眼）の描画：手動作成またはトレースモードのときに表示
+  if (appMode === 'manual' || isTraceMode) {
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= size; i++) {
+      // 縦線
+      ctx.beginPath();
+      ctx.moveTo(offset + i * cellSize, offset);
+      ctx.lineTo(offset + i * cellSize, offset + size * cellSize);
+      ctx.stroke();
+      // 横線
+      ctx.beginPath();
+      ctx.moveTo(offset, offset + i * cellSize);
+      ctx.lineTo(offset + size * cellSize, offset + i * cellSize);
+      ctx.stroke();
+    }
+  }
+
   // 白ドット
   ctx.fillStyle = '#ffffff';
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      if (grid[y] && grid[y][x] === 1) {
+      const cellValue = grid[y] && grid[y][x];
+      if (cellValue && cellValue > 0) {
+        const radiusRatio = (cellValue === 1) ? 0.4 : cellValue;
+        
         const cx = offset + x * cellSize + cellSize / 2;
         const cy = offset + y * cellSize + cellSize / 2;
         ctx.beginPath();
-        ctx.arc(cx, cy, cellSize * dotRadiusRatio, 0, Math.PI * 2);
+        ctx.arc(cx, cy, cellSize * radiusRatio, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -112,10 +158,10 @@ function drawTransformedEditorDots(canvas, grid, size, scale, dx, dy, alpha) {
   ctx.restore();
 }
 
-// ドットの円の大きさスライダー操作
+// ドットサイズスライダー操作
 function onDotSizeChange(val) {
   dotRadiusRatio = parseFloat(val);
-  renderEditor();
+  updateDotSizePreview();
 }
 
 // マス目サイズ（グリッド数）変更
@@ -173,25 +219,34 @@ editorCanvas.addEventListener('mousedown', (e) => { isDrawing = true; editCell(e
 editorCanvas.addEventListener('mousemove', (e) => { if (isDrawing) editCell(e); });
 window.addEventListener('mouseup', () => { isDrawing = false; });
 
-// 単一セルクリック＆描画処理
+// 単一セルクリック＆描画処理（マウス位置のズレなし）
 function editCell(e) {
   const rect = editorCanvas.getBoundingClientRect();
-  const clickX = e.clientX - rect.left;
-  const clickY = e.clientY - rect.top;
+  
+  const scaleX = editorCanvas.width / rect.width;
+  const scaleY = editorCanvas.height / rect.height;
+
+  const clickX = (e.clientX - rect.left) * scaleX;
+  const clickY = (e.clientY - rect.top) * scaleY;
 
   const w = editorCanvas.width;
   const cellSize = (w * 0.8) / currentGridSize;
   const offset = w * 0.1;
 
   const centerX = w / 2;
+  const centerY = w / 2;
   const localX = (clickX - centerX - (shiftX * cellSize)) / scaleFactor + centerX;
-  const localY = (clickY - centerX - (shiftY * cellSize)) / scaleFactor + centerX;
+  const localY = (clickY - centerY - (shiftY * cellSize)) / scaleFactor + centerY;
 
   const x = Math.floor((localX - offset) / cellSize);
   const y = Math.floor((localY - offset) / cellSize);
 
   if (x >= 0 && x < currentGridSize && y >= 0 && y < currentGridSize) {
-    gridData[y][x] = (currentTool === 'pen') ? 1 : 0;
+    if (currentTool === 'pen') {
+      gridData[y][x] = dotRadiusRatio;
+    } else {
+      gridData[y][x] = 0;
+    }
     renderEditor();
   }
 }
