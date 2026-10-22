@@ -67,7 +67,7 @@
             <button class="tool-btn" id="eraserBtn" onclick="setTool('eraser')" style="flex:1;">🧹 消しゴム</button>
           </div>
 
-          <!-- ▼ グリッド吸着切り替えスイッチ（ペン・消しゴムのすぐ下に配置） -->
+          <!-- グリッド吸着切り替えスイッチ -->
           <div style="width:100%; margin-top:8px;">
             <label style="cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(255,255,255,0.08); padding: 8px; border-radius: 6px; color: #fff; font-size: 13px; user-select: none; border: 1px solid rgba(255,255,255,0.1);">
               <input type="checkbox" id="snapToggleCheckbox" checked onchange="toggleSnapMode(this.checked)" style="transform: scale(1.2); cursor: pointer;">
@@ -75,12 +75,14 @@
             </label>
           </div>
 
+          <!-- ▼ 指定ドット列データからの自動作成ボタン -->
+          <button class="tool-btn" onclick="generateFromCustomColCounts()" style="width:100%; margin-top:8px; background: rgba(255, 180, 0, 0.2); border: 1px solid rgba(255, 180, 0, 0.4); color: #ffca28;">🔢 指定ドット列データで作成</button>
+
           <!-- ドット（円）の大きさ調整コントロール ＋ サイズ確認プレビュー枠 -->
           <div style="width:100%; background:rgba(255,255,255,0.05); padding:8px; border-radius:6px; margin-top:8px; text-align:center;">
             <p style="font-size:12px; color:#aaa; margin-bottom: 5px;">⚪ ドット（円）の大きさ</p>
             <div style="display:flex; align-items:center; gap:8px; justify-content:center;">
               <input type="range" id="dotSizeSlider" min="0.1" max="1.5" step="0.05" value="0.4" oninput="onDotSizeChange(this.value)" style="flex:1;">
-              <!-- 現在のドットサイズがひと目でわかるプレビュー用キャンバス -->
               <canvas id="dotSizePreviewCanvas" width="36" height="36" style="background:#000; border-radius:50%; border:1px solid #555; display:block;"></canvas>
             </div>
           </div>
