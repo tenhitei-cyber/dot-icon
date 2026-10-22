@@ -59,6 +59,37 @@ function openEditor(grid, size, isTrace = false) {
   renderEditor();
 }
 
+// ▼ ご指定のドット列データ（左から 5, 9, 11, 11, 13, 13, 13, 13, 13, 11, 9, 5）を基にアイコンを自動作成する関数
+function generateFromCustomColCounts() {
+  gridData = Array.from({ length: currentGridSize }, () => Array(currentGridSize).fill(0));
+  freeDots = [];
+  isSnapMode = true;
+  const cb = document.getElementById('snapToggleCheckbox');
+  if (cb) cb.checked = true;
+
+  // ご指定の列ごとのドット数データ
+  const colCounts = [5, 9, 11, 11, 13, 13, 13, 13, 13, 11, 9, 5];
+  
+  // キャンバスの中央に配置するための開始X座標を計算
+  const startX = Math.floor((currentGridSize - colCounts.length) / 2);
+
+  for (let i = 0; i < colCounts.length; i++) {
+    const count = colCounts[i];
+    const x = startX + i;
+    if (x >= 0 && x < currentGridSize) {
+      // 縦方向も中央揃えになるように開始Y座標を計算
+      const startY = Math.floor((currentGridSize - count) / 2);
+      for (let j = 0; j < count; j++) {
+        const y = startY + j;
+        if (y >= 0 && y < currentGridSize) {
+          gridData[y][x] = dotRadiusRatio;
+        }
+      }
+    }
+  }
+  renderEditor();
+}
+
 // スイッチ切り替え時の処理（グリッド⇔自由配置データの相互変換）
 function toggleSnapMode(isChecked) {
   isSnapMode = isChecked;
@@ -68,7 +99,6 @@ function toggleSnapMode(isChecked) {
   const offset = w * 0.1;
 
   if (!isSnapMode) {
-    // 【吸着ON ⇒ 自由配置OFF】 gridData から freeDots へ変換
     freeDots = [];
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
@@ -81,7 +111,6 @@ function toggleSnapMode(isChecked) {
       }
     }
   } else {
-    // 【自由配置OFF ⇒ 吸着ON】 freeDots から gridData へ変換
     gridData = Array.from({ length: size }, () => Array(size).fill(0));
     freeDots.forEach(dot => {
       const gx = Math.floor((dot.x - offset) / cellSize);
@@ -145,13 +174,11 @@ function drawTransformedEditorDots(canvas, size, scale, dx, dy, alpha) {
   const w = canvas.width;
   ctx.clearRect(0, 0, w, w);
 
-  // キャンバス外枠にピッタリ内接する黒背景丸
   ctx.fillStyle = '#000000';
   ctx.beginPath();
   ctx.arc(w / 2, w / 2, w / 2, 0, Math.PI * 2);
   ctx.fill();
 
-  // 下絵描画
   if (alpha > 0 && typeof rawImage !== 'undefined' && rawImage) {
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -170,7 +197,6 @@ function drawTransformedEditorDots(canvas, size, scale, dx, dy, alpha) {
   ctx.scale(scale, scale);
   ctx.translate(-w / 2, -w / 2);
 
-  // グリッド線（ガイド）の描画
   if (appMode === 'manual' || isTraceMode) {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.lineWidth = 1;
@@ -187,7 +213,6 @@ function drawTransformedEditorDots(canvas, size, scale, dx, dy, alpha) {
     }
   }
 
-  // 白ドットの描画（吸着モードか自由配置モードかで切り替え）
   ctx.fillStyle = '#ffffff';
   if (isSnapMode) {
     for (let y = 0; y < size; y++) {
@@ -203,7 +228,6 @@ function drawTransformedEditorDots(canvas, size, scale, dx, dy, alpha) {
         }
       }
     }
-    // 吸着モードでドラッグ中の場合、マウス位置に掴んでいるドットを半透明で常時表示する
     if (isDraggingDot && draggedDotValue !== null) {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
       ctx.beginPath();
@@ -212,14 +236,12 @@ function drawTransformedEditorDots(canvas, size, scale, dx, dy, alpha) {
     }
   } else {
     freeDots.forEach((dot, index) => {
-      // 自由配置モードでドラッグ中のドットは、元の位置ではなくマウス位置に表示するためここではスキップ
       if (!(isDraggingDot && index === draggedFreeDotIndex)) {
         ctx.beginPath();
         ctx.arc(dot.x, dot.y, cellSize * dot.radiusRatio, 0, Math.PI * 2);
         ctx.fill();
       }
     });
-    // 自由配置モードでドラッグ中のドットをマウス位置に表示
     if (isDraggingDot && draggedFreeDotIndex !== -1) {
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
@@ -283,7 +305,6 @@ function onGhostAlphaChange(val) {
   renderEditor();
 }
 
-// キャンバス描画・マウスイベント処理
 const editorCanvas = document.getElementById('editorCanvas');
 
 editorCanvas.addEventListener('mousedown', (e) => {
@@ -360,14 +381,13 @@ function handlePointerDown(e) {
     if (currentTool === 'pen') {
       const hitIndex = freeDots.findIndex(dot => {
         const dist = Math.hypot(dot.x - localX, dot.y - localY);
-        return dist <= (cellSize * dot.radiusRatio * 1.5); // 掴みやすく少し判定を拡大
+        return dist <= (cellSize * dot.radiusRatio * 1.5);
       });
 
       if (hitIndex !== -1) {
         isDraggingDot = true;
         draggedFreeDotIndex = hitIndex;
         draggedDotValue = freeDots[hitIndex].radiusRatio;
-        // ドラッグ中はリストから外さず保持し、描画側でマウス位置に追従させる
       } else {
         freeDots.push({ x: localX, y: localY, radiusRatio: dotRadiusRatio });
       }
@@ -383,7 +403,7 @@ function handlePointerDown(e) {
 
 function handlePointerMove(e) {
   if (isDraggingDot) {
-    renderEditor(); // ドラッグ中はマウス位置に円が追従して描き直される
+    renderEditor();
   } else if (currentTool === 'pen' && isSnapMode) {
     const { localX, localY } = getLocalCoords(e);
     const w = editorCanvas.width;
@@ -433,7 +453,6 @@ function handlePointerUp(e) {
       gridData[dragSourcePos.y][dragSourcePos.x] = draggedDotValue;
     }
   } else if (!isSnapMode && isDraggingDot && draggedFreeDotIndex !== -1) {
-    // 自由配置モードのドロップ：元の位置のデータを更新または新規追加
     freeDots[draggedFreeDotIndex] = { x: localX, y: localY, radiusRatio: draggedDotValue };
   }
   renderEditor();
