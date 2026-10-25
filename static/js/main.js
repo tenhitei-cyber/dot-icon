@@ -10,28 +10,77 @@ function switchMode(mode) {
   
   const uploadArea = document.getElementById('dropArea');
   const manualArea = document.getElementById('manualStartArea');
+  const directDropArea = document.getElementById('directDropArea');
 
   if (mode === 'auto') {
     uploadArea.style.display = 'block';
+    directDropArea.style.display = 'block';
     manualArea.style.display = 'none';
     document.getElementById('uploadText').innerText = '📁 画像をドラッグ＆ドロップ（自動で20候補を作成）';
   } else if (mode === 'trace') {
     uploadArea.style.display = 'block';
+    directDropArea.style.display = 'none'; // トレース時はダイレクト拡大窓を非表示
     manualArea.style.display = 'none';
     document.getElementById('uploadText').innerText = '📁 下絵画像をドラッグ＆ドロップ（下絵を見ながら手動トレース）';
   } else { // 'manual'
     uploadArea.style.display = 'none';
+    directDropArea.style.display = 'none';
     manualArea.style.display = 'block';
   }
 }
 
-// ドロップ・ファイル読み込み処理
+// ドロップ・ファイル読み込み処理（通常モード）
 const dropArea = document.getElementById('dropArea');
 dropArea.addEventListener('dragover', (e) => { e.preventDefault(); });
 dropArea.addEventListener('drop', (e) => {
   e.preventDefault();
   if (e.dataTransfer.files.length) handleImage(e.dataTransfer.files[0]);
 });
+
+// ▼ ダイレクト拡大用の窓に対するドラッグ＆ドロップのイベント処理
+const directDropArea = document.getElementById('directDropArea');
+if (directDropArea) {
+    directDropArea.addEventListener('dragover', (e) => { 
+        e.preventDefault(); 
+    });
+    directDropArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer.files.length) {
+            upscaleAndDownloadDirect(e.dataTransfer.files[0]);
+        }
+    });
+}
+
+// ▼ 既存の低解像度PNGを選択されたサイズ（64/256/512）でダイレクト拡大・ダウンロードする関数
+function upscaleAndDownloadDirect(file) {
+    if (!file) return;
+
+    // セレクトボックスから選択されたサイズを取得（デフォルトは512）
+    const targetSizeSelect = document.getElementById('directResolution');
+    const targetSize = targetSizeSelect ? parseInt(targetSizeSelect.value) : 512;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = targetSize;
+            canvas.height = targetSize;
+            const ctx = canvas.getContext('2d');
+
+            // ニアレストネイバー法（ドットのぼやけ防止）
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(img, 0, 0, targetSize, targetSize);
+
+            const link = document.createElement('a');
+            link.download = `dot_icon_${targetSize}x{targetSize}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
 
 function handleImage(file) {
   if (!file) return;
@@ -172,7 +221,7 @@ function floodFillBackground(data, width, height) {
         const nr = data[nIdx], ng = data[nIdx+1], nb = data[nIdx+2];
 
         let matches = sampleColors.some(sc => colorMatch(nr, ng, nb, sc[0], sc[1], sc[2])) ||
-                      colorMatch(nr, ng, nb, cr, cg, cb);
+                    colorMatch(nr, ng, nb, cr, cg, cb);
 
         if (matches) queue.push([nx, ny]);
       }
