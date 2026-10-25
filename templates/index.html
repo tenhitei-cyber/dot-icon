@@ -17,10 +17,28 @@
       <button class="btn btn-secondary" id="tabManualMode" onclick="switchMode('manual')" style="flex:1; min-width:140px;">✏️ 3. 白紙手動作成</button>
     </div>
 
-    <!-- 1. アップロードエリア -->
+    <!-- 1. アップロードエリア（自動変換・下絵トレース用） -->
     <div class="upload-section" id="dropArea" onclick="document.getElementById('fileInput').click()">
       <p id="uploadText">📁 画像ファイルをドラッグ＆ドロップ、またはクリックして選択</p>
       <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleImage(this.files[0])">
+    </div>
+
+    <!-- ▼ 既存PNGのダイレクト拡大・保存専用の窓（サイズ選択付き） -->
+    <div class="upload-section" id="directDropArea" style="border: 2px dashed rgba(0, 180, 255, 0.5); background: rgba(0, 180, 255, 0.05); margin-bottom: 15px; padding: 20px; text-align: center; border-radius: 8px;">
+      <p id="directUploadText" style="color: #4fc3f7; margin: 0 0 10px 0; font-size: 14px;">✨ 既存の低解像度PNGをここにドラッグ＆ドロップ（またはクリック）</p>
+      
+      <!-- ダイレクト拡大用のサイズ選択 -->
+      <div style="margin-bottom: 10px;">
+        <label style="font-size: 12px; color: #aaa; margin-right: 5px;">保存サイズ:</label>
+        <select id="directResolution" class="btn btn-secondary" style="padding: 4px 8px; background:#222; color:#fff; border:1px solid #555;">
+          <option value="64">64 × 64 px</option>
+          <option value="256">256 × 256 px</option>
+          <option value="512" selected>512 × 512 px</option>
+        </select>
+      </div>
+
+      <button class="btn btn-secondary" onclick="document.getElementById('directUpscaleInput').click()" style="padding: 6px 16px; font-size: 13px;">ファイルを選択して拡大保存</button>
+      <input type="file" id="directUpscaleInput" accept="image/png" style="display:none" onchange="if(this.files.length) upscaleAndDownloadDirect(this.files[0])">
     </div>
 
     <!-- 白紙手動作成スタートボタン (白紙手動モード時のみ表示) -->
@@ -75,7 +93,7 @@
             </label>
           </div>
 
-          <!-- ▼ 指定ドット列データからの自動作成ボタン -->
+          <!-- 指定ドット列データからの自動作成ボタン -->
           <button class="tool-btn" onclick="generateFromCustomColCounts()" style="width:100%; margin-top:8px; background: rgba(255, 180, 0, 0.2); border: 1px solid rgba(255, 180, 0, 0.4); color: #ffca28;">🔢 指定ドット列データで作成</button>
 
           <!-- ドット（円）の大きさ調整コントロール ＋ サイズ確認プレビュー枠 -->
@@ -141,6 +159,17 @@
             </div>
           </div>
           <hr style="border-color:#333; width:100%;">
+
+          <!-- 書き出し用解像度選択 -->
+          <div style="width:100%; text-align:center; margin-bottom:10px;">
+            <p style="font-size:12px; color:#aaa; margin-bottom: 3px;">📐 保存サイズ</p>
+            <select id="downloadResolution" class="btn btn-secondary" style="width:100%; padding:6px; background:#222; color:#fff; border:1px solid #555;">
+              <option value="64">64 × 64 px</option>
+              <option value="256">256 × 256 px</option>
+              <option value="512" selected>512 × 512 px (標準)</option>
+            </select>
+          </div>
+
           <button class="btn" onclick="downloadIcon()" style="width:100%;">💾 PNGダウンロード</button>
           <button class="btn btn-secondary" id="backBtn" onclick="backToPrev()" style="width:100%; margin-top:5px;">⬅ 戻る</button>
         </div>
